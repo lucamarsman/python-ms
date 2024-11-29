@@ -1,12 +1,40 @@
 from flask import Flask, jsonify, request
 from nba_api.stats.static import teams, players
-from nba_api.stats.endpoints import LeagueDashPlayerStats, LeagueDashTeamStats, LeagueGameFinder, BoxScoreTraditionalV2, LeagueStandingsV3, CommonPlayerInfo, LeagueGameFinder, ScoreboardV2
+from nba_api.stats.endpoints import LeagueDashPlayerStats, LeagueDashTeamStats, LeagueGameFinder, BoxScoreTraditionalV2, LeagueStandingsV3, CommonPlayerInfo, LeagueGameFinder, ScoreboardV2, commonallplayers, playerawards
 from nba_api.live.nba.endpoints import scoreboard
 from nba_api.stats.library.parameters import LeagueID
 from datetime import datetime
 
 app = Flask(__name__)
 
+@app.route('/seasons', methods=['GET'])
+def get_seasons():
+    try:
+        from nba_api.stats.endpoints import commonteamyears
+        # Fetch the team years data
+        team_years = commonteamyears.CommonTeamYears()
+        team_years_data = team_years.get_data_frames()[0]
+
+        # Extract MIN_YEAR and MAX_YEAR columns
+        min_years = [int(year) for year in team_years_data['MIN_YEAR'].unique()]
+        max_years = [int(year) for year in team_years_data['MAX_YEAR'].unique()]
+
+        # Generate all years between MIN_YEAR and MAX_YEAR
+        all_years = set()
+        for min_year, max_year in zip(min_years, max_years):
+            all_years.update(range(min_year, max_year + 1))
+
+        # Filter for seasons starting from 2010 onwards
+        filtered_years = sorted([year for year in all_years if year >= 2010])
+
+        # Convert to "YYYY-YY" format
+        seasons = [f"{year}-{str(year + 1)[-2:]}" for year in filtered_years]
+
+        return jsonify(seasons), 200
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        return jsonify({"error": str(e)}), 500
+       
 
 # FOR FETCHING TEAMS
 @app.route('/teams', methods=['GET'])
@@ -17,24 +45,35 @@ def get_teams():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# FOR FETCHING PLAYERS
+
+
 @app.route('/players', methods=['GET'])
 def get_players():
     try:
-        team_id = request.args.get('teamId')
-        player_name = request.args.get('playerName')
-        all_players = players.get_active_players()
+        # Get the start and end year from request arguments, with defaults
+        start_year = int(request.args.get('startYear', 2010))
+        end_year = int(request.args.get('endYear', datetime.now().year))
 
-        # Filter players by team ID or name if provided
-        filtered_players = all_players
-        if team_id:
-            filtered_players = [p for p in filtered_players if str(p.get('team_id')) == team_id]
-        if player_name:
-            filtered_players = [p for p in filtered_players if player_name.lower() in p.get('full_name', '').lower()]
+        # Fetch all players for the latest season (end year)
+        season_str = f"{end_year}-{str(end_year + 1)[-2:]}"
+        players = commonallplayers.CommonAllPlayers(is_only_current_season=0, season=season_str).get_data_frames()[0]
 
-        return jsonify(filtered_players), 200
+        # Convert 'FROM_YEAR' and 'TO_YEAR' columns to integers
+        players['FROM_YEAR'] = players['FROM_YEAR'].astype(int)
+        players['TO_YEAR'] = players['TO_YEAR'].astype(int)
+
+        # Filter players by debut and final year
+        filtered_players = players[
+            (players['FROM_YEAR'] <= end_year) & (players['TO_YEAR'] >= start_year)
+        ]
+
+        # Convert the filtered players to a dictionary for JSON response
+        filtered_players_dict = filtered_players.to_dict(orient='records')
+
+        return jsonify(filtered_players_dict), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 #FOR FETCHING BASIC PLAYER INFO BY PLAYERID
 @app.route('/player-info', methods=['GET'])
@@ -45,6 +84,20 @@ def get_player_info():
         player_info = CommonPlayerInfo(player_id=player_id).get_normalized_dict()
 
         return jsonify(player_info), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
+#FOR FETCHING PLAYER AWARDS
+@app.route('/player-awards', methods=['GET'])
+def get_player_awards():
+    try:
+        player_id = request.args.get('PlayerId')
+        awards = playerawards.PlayerAwards(player_id=player_id).get_data_frames()[0]
+
+        player_awards = awards.to_dict(orient='records')
+        
+        return jsonify(player_awards), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
@@ -72,7 +125,7 @@ def get_season_stats_player():
 @app.route('/stats/teams', methods=['GET'])
 def get_season_stats_team():
     try:
-        season = request.args.get('Season', '2024-25')  # Default to the current season
+        season = request.args.get('Season')  # Default to the current season
         per_mode = request.args.get('PerMode')  # Default to PerGame stats  Totals
         season_type = request.args.get('SeasonType', 'Regular Season')  # Default to regular season
 
