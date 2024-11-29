@@ -25,7 +25,7 @@ def get_seasons():
             all_years.update(range(min_year, max_year + 1))
 
         # Filter for seasons starting from 2010 onwards
-        filtered_years = sorted([year for year in all_years if year >= 2010])
+        filtered_years = sorted([year for year in all_years if year >= 2014])
 
         # Convert to "YYYY-YY" format
         seasons = [f"{year}-{str(year + 1)[-2:]}" for year in filtered_years]
@@ -188,7 +188,7 @@ def get_standings():
 @app.route('/schedule', methods=['GET'])
 def get_schedule():
     try:
-        season = request.args.get('Season', '2024-25')  # Default to current season
+        season = request.args.get('Season')  # Default to current season
         league_id = request.args.get("LeagueId", LeagueID.default)
         team_id = request.args.get('TeamId')  # Optional: Team ID to filter
         start_date = request.args.get('StartDate')  # Optional: Start date (YYYY-MM-DD)
